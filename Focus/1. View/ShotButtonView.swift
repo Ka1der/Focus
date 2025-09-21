@@ -32,6 +32,7 @@ struct ShotButtonView: View {
                         .frame(width: thirdircleRadius)
                 }
         }
+            .buttonStyle(PlainButtonStyle()) 
     }
 }
 
