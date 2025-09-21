@@ -33,7 +33,11 @@ class CameraView: ObservableObject {
         }
         
         session.commitConfiguration() // применение изменений
-        session.startRunning() // запуск сессии (камера показывает кадры на экране)
+        
+        DispatchQueue.global(qos: .userInitiated).async {
+            self.session.startRunning() // запуск сессии (камера показывает кадры на экране)
+        }
+      
     }
     
     func getSession() -> AVCaptureSession { // отдаем наружу AVCaptureSession
