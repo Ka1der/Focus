@@ -22,7 +22,7 @@ struct CameraScreen: View {
             VStack {
                 Spacer()
                 ShotButtonView(title: "") {
-                    // button action
+                    camera.capturePhoto() 
                 }
                 .padding(.bottom, 50)
                 .padding(.leading, 200)
