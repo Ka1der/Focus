@@ -8,27 +8,26 @@
 import AVFoundation
 
 final class FocusManager {
-    
+
     private let queue: DispatchQueue
     private weak var device: AVCaptureDevice?
-    
-    init(queue: DispatchQueue = DispatchQueue(label: "focus.qeue"), device: AVCaptureDevice?) {
+
+    init(queue: DispatchQueue = DispatchQueue(label: "focus.queue"), device: AVCaptureDevice?) {
         self.queue = queue
         self.device = device
     }
-    
-    // Метод обновления камеры при переключении
+
     func updateDevice(_ device: AVCaptureDevice?) {
         self.device = device
     }
-    
-        // Метод установки точки фокуса devicePoint
+
     func focus(at devicePoint: CGPoint) {
         queue.async { [weak self] in
             guard let device = self?.device else { return }
-            
             do {
                 try device.lockForConfiguration()
+                defer { device.unlockForConfiguration() }
+
                 if device.isFocusPointOfInterestSupported {
                     device.focusPointOfInterest = devicePoint
                     if device.isFocusModeSupported(.autoFocus) {
@@ -37,14 +36,12 @@ final class FocusManager {
                         device.focusMode = .continuousAutoFocus
                     }
                 }
-                device.unlockForConfiguration()
             } catch {
-               print("Focus manager error:", error)
+                print("Focus manager error:", error)
             }
         }
     }
-    
-    // Метод для конвертации точки тапа слоя в точку камеры
+
     func focus(fromLayerPoint layerPoint: CGPoint, in previewLayer: AVCaptureVideoPreviewLayer) {
         let devicePoint = previewLayer.captureDevicePointConverted(fromLayerPoint: layerPoint)
         focus(at: devicePoint)

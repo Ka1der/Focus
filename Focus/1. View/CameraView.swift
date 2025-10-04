@@ -9,39 +9,54 @@ import AVFoundation
 import SwiftUI
 
 class CameraView: ObservableObject {
-    private let session = AVCaptureSession() // объект который управляет сессией захвата фото/видео/аудио
-    
+    private let session = AVCaptureSession()
+    private let sessionQueue = DispatchQueue(label: "camera.session.queue")
+
+    private var device: AVCaptureDevice?
+    private(set) var focusManager: FocusManager?
+
     init() {
         setupSession()
     }
-    
+
     private func setupSession() {
-        session.beginConfiguration() // ожидание настроек
-        
+        session.beginConfiguration()
+
         guard let device = AVCaptureDevice.default(.builtInWideAngleCamera,
                                                    for: .video,
                                                    position: .back),
-              let input = try? AVCaptureDeviceInput(device: device) else { return }
-        
-        if session.canAddInput(input) { // добавлем входной поток от камеры в сессию
+              let input = try? AVCaptureDeviceInput(device: device) else {
+            session.commitConfiguration()
+            return
+        }
+
+        if session.canAddInput(input) {
             session.addInput(input)
         }
-        
-        let output = AVCaptureVideoDataOutput() // добавлем выходной поток
+
+        let output = AVCaptureVideoDataOutput()
         if session.canAddOutput(output) {
             session.addOutput(output)
         }
-        
-        session.commitConfiguration() // применение изменений
-        
-        DispatchQueue.global(qos: .userInitiated).async {
-            self.session.startRunning() // запуск сессии (камера показывает кадры на экране)
+
+        session.commitConfiguration()
+
+        // Сохраняем устройство и создаем FocusManager на той же очереди
+        self.device = device
+        self.focusManager = FocusManager(queue: sessionQueue, device: device)
+
+        // Запуск сессии в фоне
+        sessionQueue.async {
+            self.session.startRunning()
         }
-      
     }
-    
-    func getSession() -> AVCaptureSession { // отдаем наружу AVCaptureSession
+
+    func getSession() -> AVCaptureSession {
         return session
     }
-    
+
+    // Проброс фокуса: конвертация точки слоя и вызов FocusManager
+    func focus(fromLayerPoint layerPoint: CGPoint, in previewLayer: AVCaptureVideoPreviewLayer) {
+        focusManager?.focus(fromLayerPoint: layerPoint, in: previewLayer)
+    }
 }

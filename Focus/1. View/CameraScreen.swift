@@ -6,27 +6,26 @@
 //
 
 import SwiftUI
+import AVFoundation
 
 struct CameraScreen: View {
-    
+
     @State private var camera = CameraView()
-    
+
     var body: some View {
-        ZStack{
-            CameraPreview(session: camera.getSession())
-                .ignoresSafeArea()
-            
+        ZStack {
+            CameraPreview(session: camera.getSession()) { layerPoint, previewLayer in
+                camera.focus(fromLayerPoint: layerPoint, in: previewLayer)
+            }
+            .ignoresSafeArea()
+
             VStack {
-                
-              Spacer()
-                
+                Spacer()
                 ShotButtonView(title: "") {
                     // button action
                 }
                 .padding(.bottom, 50)
                 .padding(.leading, 200)
-                
-                
             }
         }
     }
