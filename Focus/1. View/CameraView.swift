@@ -13,6 +13,7 @@ final class CameraView: NSObject, ObservableObject {
     // MARK: - Session & Queues
     private let session = AVCaptureSession()
     private let sessionQueue = DispatchQueue(label: "focus.camera.session.queue")
+    private(set) var settings: CameraSettingsManager?
 
     // MARK: - Managers
     private lazy var cameraManager = CameraManager(session: session, sessionQueue: sessionQueue)
@@ -55,12 +56,15 @@ final class CameraView: NSObject, ObservableObject {
     }
 
     func capturePhoto() {
-        let settings = AVCapturePhotoSettings()
-        settings.maxPhotoDimensions = photoOutput.maxPhotoDimensions
-        settings.flashMode = .off
+        let settingsPhoto = AVCapturePhotoSettings()
+        settingsPhoto.maxPhotoDimensions = photoOutput.maxPhotoDimensions
+
+        // Используем flash из настроек (по умолчанию .off)
+        let desired = settings?.flashMode.avCaptureMode ?? .off
+        settingsPhoto.flashMode = desired
 
         sessionQueue.async {
-            self.photoOutput.capturePhoto(with: settings, delegate: self)
+            self.photoOutput.capturePhoto(with: settingsPhoto, delegate: self)
         }
     }
 
@@ -87,7 +91,8 @@ final class CameraView: NSObject, ObservableObject {
 }
 
 // MARK: - Private: Session Setup
-private extension CameraView {
+
+extension CameraView {
     func setupSession() {
         sessionQueue.async {
             if self.session.canSetSessionPreset(.photo) {
@@ -131,6 +136,10 @@ private extension CameraView {
             }
         }
     }
+    
+    func attachSettings(_ settings: CameraSettingsManager) {
+          self.settings = settings
+      }
 }
 
 // MARK: - Photo Delegate
