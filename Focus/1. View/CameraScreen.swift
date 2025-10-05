@@ -14,18 +14,25 @@ struct CameraScreen: View {
 
     var body: some View {
         ZStack {
-            // Превью камеры + фокус по тапу
+            // Превью + фокус по тапу
             CameraPreview(session: camera.getSession()) { layerPoint, previewLayer in
                 camera.focus(fromLayerPoint: layerPoint, in: previewLayer)
             }
             .ignoresSafeArea()
 
             VStack(spacing: 12) {
-                // Панель переключения задних модулей (0.5x / 1x / 2x/3x)
+
+                // ✅ Обновлённый вызов ChangeCameraView
                 ChangeCameraView(
                     available: camera.availableBackModules(),
-                    selected: camera.selectedBackModule,
-                    onSelect: { module in
+                    selectedBack: camera.selectedBackModule,
+                    isFrontSelected: camera.isFrontSelected,
+                    onSelectFront: {
+                        if camera.isFrontAvailable() {
+                            camera.setFrontCamera()
+                        }
+                    },
+                    onSelectBack: { module in
                         camera.setBackModule(module)
                     }
                 )
@@ -33,7 +40,6 @@ struct CameraScreen: View {
 
                 Spacer()
 
-                // Кнопка спуска
                 ShotButtonView(title: "") {
                     camera.capturePhoto()
                 }

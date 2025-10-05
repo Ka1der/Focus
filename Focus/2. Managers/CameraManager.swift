@@ -7,45 +7,54 @@
 
 import AVFoundation
 
-/// Отвечает за выбор заднего модуля камеры и перестройку input у AVCaptureSession.
+/// Управляет выбором камеры и перестройкой input у AVCaptureSession.
 final class CameraManager {
-    
+
     // MARK: Public types
-    
+
     enum BackModule: Hashable {
         case ultraWide          // 0.5x
-        case wide               // 1x (базовый)
-        case tele(nominal: Double?) // 2x/3x/… (если можем оценить)
+        case wide               // 1x
+        case tele(nominal: Double?) // 2x/3x/…
     }
-    
+
+    enum Selection: Equatable {
+        case back(BackModule)
+        case front
+    }
+
     // MARK: Dependencies
-    
+
     private unowned let session: AVCaptureSession
     private let sessionQueue: DispatchQueue
-    
+
     // MARK: State
-    
+
     private(set) var currentBackModule: BackModule = .wide
+    private(set) var currentSelection: Selection = .back(.wide)
     private(set) var currentInput: AVCaptureDeviceInput?
     private(set) var device: AVCaptureDevice?
-    var onBackModuleChange: ((BackModule) -> Void)?
-    
-    /// Для обновления фокуса при смене модуля
+
+    /// Для обновления фокуса при смене устройства
     weak var focusManager: FocusManager?
-    
+
+    /// Уведомление об изменении активной камеры (на главном потоке)
+    var onSelectionChange: ((Selection) -> Void)?
+
     // MARK: Init
-    
+
     init(session: AVCaptureSession, sessionQueue: DispatchQueue) {
         self.session = session
         self.sessionQueue = sessionQueue
     }
-    
+
     // MARK: Public API
-    
-    /// Текущий выбранный задний модуль
-    var selectedBackModule: BackModule { currentBackModule }
-    
-    /// Возвращает список доступных задних модулей на устройстве.
+
+    var isFrontSelected: Bool {
+        if case .front = currentSelection { return true }
+        return false
+    }
+
     func availableBackModules() -> [BackModule] {
         let devices = discoveryBackDevices()
         var result: [BackModule] = []
@@ -58,57 +67,70 @@ final class CameraManager {
         }
         return result
     }
-    
-    /// Первичная конфигурация задней камеры (ширик по умолчанию).
-    /// Вызывать один раз в начале настройки сессии.
+
+    func isFrontAvailable() -> Bool {
+        !discoveryFrontDevices().isEmpty
+    }
+
+    /// Первичная конфигурация: включаем задний ширик.
     func configureInitialBackCamera() {
         sessionQueue.async {
             self.currentBackModule = .wide
-            guard let dev = self.device(for: .wide),
-                  let input = try? AVCaptureDeviceInput(device: dev) else { return }
-            
-            self.session.beginConfiguration()
-            if let old = self.currentInput { self.session.removeInput(old) }
-            if self.session.canAddInput(input) {
-                self.session.addInput(input)
-                self.currentInput = input
-                self.device = dev
-            }
-            self.session.commitConfiguration()
-            
-            self.focusManager?.updateDevice(dev)
-            
-            // 👉 уведомляем UI
-            DispatchQueue.main.async { self.onBackModuleChange?(self.currentBackModule) }
+            self.applyInput(for: .back(.wide))
         }
     }
-    
-    /// Переключение на конкретный модуль задней камеры.
+
+    /// Переключение на конкретный задний модуль.
     func setBackModule(_ module: BackModule) {
         sessionQueue.async {
-            guard let newDevice = self.device(for: module),
-                  let newInput = try? AVCaptureDeviceInput(device: newDevice) else { return }
-            
-            self.session.beginConfiguration()
-            if let old = self.currentInput { self.session.removeInput(old) }
-            if self.session.canAddInput(newInput) {
-                self.session.addInput(newInput)
-                self.currentInput = newInput
-                self.device = newDevice
-                self.currentBackModule = module
-                self.focusManager?.updateDevice(newDevice)
-            } else if let old = self.currentInput, self.session.canAddInput(old) {
-                self.session.addInput(old)
-            }
-            self.session.commitConfiguration()
-            
-            // 👉 уведомляем UI
-            DispatchQueue.main.async { self.onBackModuleChange?(module) }
+            self.currentBackModule = module
+            self.applyInput(for: .back(module))
         }
     }
-    
+
+    /// Включить фронтальную камеру.
+    func setFrontCamera() {
+        sessionQueue.async {
+            self.applyInput(for: .front)
+        }
+    }
+
     // MARK: Private helpers
-    
+
+    private func applyInput(for selection: Selection) {
+        guard let dev = device(for: selection),
+              let input = try? AVCaptureDeviceInput(device: dev) else { return }
+
+        session.beginConfiguration()
+        if let old = currentInput { session.removeInput(old) }
+
+        if session.canAddInput(input) {
+            session.addInput(input)
+            currentInput = input
+            device = dev
+            currentSelection = selection
+
+            // сообщаем менеджеру фокуса
+            focusManager?.updateDevice(dev)
+        } else if let old = currentInput, session.canAddInput(old) {
+            // откат
+            session.addInput(old)
+        }
+        session.commitConfiguration()
+
+        DispatchQueue.main.async { self.onSelectionChange?(self.currentSelection) }
+    }
+
+    private func device(for selection: Selection) -> AVCaptureDevice? {
+        switch selection {
+        case .front:
+            return discoveryFrontDevices().first { $0.deviceType == .builtInWideAngleCamera }
+                ?? discoveryFrontDevices().first
+        case .back(let module):
+            return device(for: module)
+        }
+    }
+
     private func discoveryBackDevices() -> [AVCaptureDevice] {
         AVCaptureDevice.DiscoverySession(
             deviceTypes: [.builtInUltraWideCamera, .builtInWideAngleCamera, .builtInTelephotoCamera],
@@ -116,23 +138,30 @@ final class CameraManager {
             position: .back
         ).devices
     }
-    
+
+    private func discoveryFrontDevices() -> [AVCaptureDevice] {
+        AVCaptureDevice.DiscoverySession(
+            deviceTypes: [.builtInWideAngleCamera],
+            mediaType: .video,
+            position: .front
+        ).devices
+    }
+
     private func device(for module: BackModule) -> AVCaptureDevice? {
         let devices = discoveryBackDevices()
         switch module {
         case .ultraWide:
             return devices.first { $0.deviceType == .builtInUltraWideCamera }
-            ?? devices.first { $0.deviceType == .builtInWideAngleCamera }
+                ?? devices.first { $0.deviceType == .builtInWideAngleCamera }
         case .wide:
             return devices.first { $0.deviceType == .builtInWideAngleCamera }
-            ?? devices.first
+                ?? devices.first
         case .tele:
             return devices.first { $0.deviceType == .builtInTelephotoCamera }
-            ?? devices.first { $0.deviceType == .builtInWideAngleCamera }
+                ?? devices.first { $0.deviceType == .builtInWideAngleCamera }
         }
     }
-    
-    /// Грубая оценка «красивой» кратности теле-модуля (2x/3x/…)
+
     private func estimateTeleNominalZoom(tele: AVCaptureDevice, devices: [AVCaptureDevice]) -> Double? {
         if let wide = devices.first(where: { $0.deviceType == .builtInWideAngleCamera }),
            let w = wide.virtualDeviceSwitchOverVideoZoomFactors.first?.doubleValue,
@@ -146,4 +175,3 @@ final class CameraManager {
         return nil
     }
 }
-
